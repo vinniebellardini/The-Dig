@@ -6,6 +6,7 @@ import json
 import re
 import time
 import os
+import base64  # <--- Added this standard library
 
 # 1. Configure Page
 st.set_page_config(page_title="The Dig", page_icon="⛏️", layout="wide")
@@ -189,9 +190,13 @@ with st.sidebar:
 col1, col2, col3 = st.columns([1,2,1])
 with col2:
     if os.path.exists("logo.png"):
+        # We open the file and encode it using standard base64 library
+        with open("logo.png", "rb") as f:
+            data = base64.b64encode(f.read()).decode()
+            
         st.markdown(f"""
             <div class="logo-container">
-                <img src="data:image/png;base64,{pd.io.common.base64.b64encode(open('logo.png', "rb").read()).decode()}" class="logo-img">
+                <img src="data:image/png;base64,{data}" class="logo-img">
                 <div class="main-title">THE DIG</div>
             </div>
         """, unsafe_allow_html=True)
