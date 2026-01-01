@@ -7,6 +7,8 @@ import re
 import time
 import os
 import base64
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
 
 # 1. Configure Page
 st.set_page_config(page_title="The Dig", page_icon="⛏️", layout="wide")
@@ -17,12 +19,10 @@ st.markdown("""
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;900&display=swap');
     html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
     
-    /* Logo Styling */
     .logo-container { display: flex; flex-direction: column; align-items: center; justify-content: center; margin-bottom: 2rem; text-align: center; }
     .logo-img { max-width: 180px; border-radius: 20px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5); margin-bottom: 0.5rem; }
     .main-title { font-family: 'Inter', sans-serif; font-weight: 900; font-size: 2.5rem; background: linear-gradient(to bottom, #F8FAFC, #94A3B8); -webkit-background-clip: text; -webkit-text-fill-color: transparent; text-shadow: 0 2px 10px rgba(0,0,0,0.3); margin-top: 0px; }
 
-    /* Modern Tabs & Containers */
     .stTabs [data-baseweb="tab-list"] { gap: 10px; }
     .stTabs [data-baseweb="tab"] { background-color: #1E293B; border-radius: 10px; color: #94A3B8; padding: 10px 20px; border: 1px solid #334155; }
     .stTabs [aria-selected="true"] { background-color: #3B82F6; color: white; border-color: #3B82F6; }
@@ -30,12 +30,9 @@ st.markdown("""
     [data-testid="stExpander"] { background-color: #1E293B; border-radius: 15px; border: 1px solid #334155; }
     [data-testid="stFileUploader"] { background-color: #1E293B; border: 2px dashed #475569; border-radius: 15px; padding: 2rem; text-align: center; }
     [data-testid="stFileUploader"] section > button { background-color: #3B82F6; color: white; border: none; border-radius: 8px; font-weight: 600; }
-    
-    /* Sidebar Styling */
     [data-testid="stSidebar"] { background-color: #0F172A; border-right: 1px solid #334155; }
     [data-testid="stMetricValue"] { font-size: 2rem; font-weight: 900; color: #10B981; }
 
-    /* Slab/Card Result */
     .slab-container { background-color: #1E293B; border-radius: 15px; padding: 1rem; margin-top: 1rem; border: 1px solid #334155; border-left: 5px solid #3B82F6; box-shadow: 0 4px 10px rgba(0,0,0,0.2); }
     .slab-header { font-size: 1.1rem; font-weight: 900; color: #F8FAFC; }
     .slab-detail { color: #94A3B8; font-size: 0.9rem; }
@@ -43,7 +40,21 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# 2. Helper Functions
+# 2. Google Sheets Connection
+def connect_to_sheets():
+    try:
+        scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
+        # Load credentials from Streamlit Secrets
+        creds_dict = dict(st.secrets["gcp_service_account"])
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+        client = gspread.authorize(creds)
+        # Open the Sheet named "Card Inventory"
+        sheet = client.open("Card Inventory").sheet1
+        return sheet
+    except Exception as e:
+        return None
+
+# 3. Helper Functions
 def get_price_range(value_str):
     if not isinstance(value_str, str): return 0.0, 0.0
     numbers = re.findall(r"[\d,\.]+", value_str)
@@ -53,14 +64,48 @@ def get_price_range(value_str):
     if len(clean_nums) == 1: return clean_nums[0], clean_nums[0]
     else: return min(clean_nums), max(clean_nums)
 
-# 3. Initialize State
+def save_to_google_sheets(data_dict):
+    sheet = connect_to_sheets()
+    if sheet:
+        try:
+            # Check if headers exist, if not add them
+            if not sheet.row_values(1):
+                headers = ['Player', 'Year', 'Set', 'Team', 'Card_Number', 'Variation', 'Condition_Notes', 'Estimated_Raw_Value', 'Archive_Location']
+                sheet.append_row(headers)
+            
+            # Create row data in correct order
+            row = [
+                data_dict.get('Player', ''),
+                data_dict.get('Year', ''),
+                data_dict.get('Set', ''),
+                data_dict.get('Team', ''),
+                data_dict.get('Card_Number', ''),
+                data_dict.get('Variation', ''),
+                data_dict.get('Condition_Notes', ''),
+                data_dict.get('Estimated_Raw_Value', ''),
+                data_dict.get('Archive_Location', '')
+            ]
+            sheet.append_row(row)
+            return True
+        except Exception as e:
+            st.error(f"Cloud Save Error: {e}")
+            return False
+    return False
+
+# 4. Initialize State
 if 'inventory' not in st.session_state:
     st.session_state.inventory = []
 
-# 4. Sidebar (Stats & Restore)
+# 5. Sidebar
 with st.sidebar:
     st.title("💎 Collection Stats")
     
+    # Check Cloud Connection
+    if connect_to_sheets():
+        st.success("🟢 Connected to Google Sheets")
+    else:
+        st.error("🔴 Cloud Disconnected (Check Secrets)")
+
     total_low, total_high = 0.0, 0.0
     for item in st.session_state.inventory:
         val_str = str(item.get('Estimated_Raw_Value', '0'))
@@ -69,31 +114,13 @@ with st.sidebar:
         total_high += high
     
     st.metric(label="Total Value (Est.)", value=f"${total_low:,.0f} - ${total_high:,.0f}")
-    st.caption(f"{len(st.session_state.inventory)} items scanned.")
+    st.caption(f"{len(st.session_state.inventory)} items scanned in this session.")
     
     st.divider()
-    
-    st.subheader("📂 Import / Export")
-    st.info("Use this to save your work or restore a previous session.")
-    
-    # Improved "Resume" Box
-    uploaded_file = st.file_uploader("📥 Restore from CSV", type=['csv'], help="Upload a 'card_inventory.csv' from a previous session to add new cards to it.")
-    if uploaded_file is not None and len(st.session_state.inventory) == 0:
-        try:
-            df_load = pd.read_csv(uploaded_file)
-            st.session_state.inventory = df_load.to_dict('records')
-            st.success(f"✅ Restored {len(df_load)} items!")
-            time.sleep(1)
-            st.rerun()
-        except Exception as e: st.error("Error loading file.")
-        
-    if len(st.session_state.inventory) > 0:
-        df_save = pd.DataFrame(st.session_state.inventory)
-        csv = df_save.to_csv(index=False).encode('utf-8')
-        st.download_button("💾 Save Session to CSV", csv, "card_inventory.csv", "text/csv", type="primary")
+    st.info("ℹ️ Items are automatically saved to your 'Card Inventory' Google Sheet.")
 
-# 5. SPLIT LAYOUT (Action vs Data)
-col_action, col_data = st.columns([1, 1.2], gap="large") # 1:1.2 ratio gives Table slightly more room
+# 6. SPLIT LAYOUT
+col_action, col_data = st.columns([1, 1.2], gap="large")
 
 # --- LEFT COLUMN: ACTION ZONE ---
 with col_action:
@@ -141,9 +168,11 @@ with col_action:
                     resp = model.generate_content(inputs)
                     new = json.loads(resp.text)
                     new['Archive_Location'] = archive_location
+                    
+                    # SAVE TO CLOUD & SESSION
+                    cloud_success = save_to_google_sheets(new)
                     st.session_state.inventory.append(new)
                     
-                    # Show Slab Result Here
                     st.markdown(f"""
                     <div class="slab-container">
                         <div class="slab-header">✅ {new.get('Player')}</div>
@@ -151,7 +180,9 @@ with col_action:
                         <div class="slab-price">{new.get('Estimated_Raw_Value')}</div>
                     </div>
                     """, unsafe_allow_html=True)
-                    st.success("Added to list!")
+                    
+                    if cloud_success: st.toast("☁️ Saved to Google Sheets!", icon="✅")
+                    else: st.toast("⚠️ Saved locally only (Check Sheet connection)", icon="⚠️")
                     
                 except Exception as e: st.error(f"Error: {e}")
 
@@ -182,13 +213,18 @@ with col_action:
                             resp = model.generate_content(inputs)
                             new = json.loads(resp.text)
                             new['Archive_Location'] = archive_location
+                            
+                            # SAVE TO CLOUD & SESSION
+                            cloud_success = save_to_google_sheets(new)
                             st.session_state.inventory.append(new)
+                            
+                            if cloud_success: st.toast(f"Item {(i//2)+1} Saved to Cloud", icon="☁️")
                             
                         except Exception as e: st.error(f"Error: {e}")
                         prog.progress(((i//2)+1)/total)
                         time.sleep(4)
                     
-                    st.success("Batch Done!")
+                    st.success("Batch Done! All items saved to Google Sheets.")
                     time.sleep(1)
                     st.rerun()
 
@@ -197,16 +233,8 @@ with col_data:
     st.markdown("### 📋 Live Inventory")
     if len(st.session_state.inventory) > 0:
         df = pd.DataFrame(st.session_state.inventory)
-        # Reorder columns for readability
         cols = ['Player', 'Year', 'Set', 'Card_Number', 'Variation', 'Estimated_Raw_Value', 'Archive_Location', 'Condition_Notes']
         visible_cols = [c for c in cols if c in df.columns]
-        
-        # Display Dataframe with fixed height so it scrolls
-        st.dataframe(
-            df[visible_cols], 
-            use_container_width=True, 
-            height=600, 
-            hide_index=True
-        )
+        st.dataframe(df[visible_cols], use_container_width=True, height=600, hide_index=True)
     else:
         st.info("Waiting for scans... Your list will appear here.")
