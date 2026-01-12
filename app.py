@@ -16,28 +16,24 @@ from googleapiclient.http import MediaIoBaseUpload
 # 1. Configure Page
 st.set_page_config(page_title="The Dig", page_icon="⛏️", layout="wide")
 
-# --- CUSTOM CSS (UI POLISH) ---
+# --- CUSTOM CSS ---
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;900&display=swap');
     html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
     
-    /* Logo & Title */
     .logo-container { display: flex; flex-direction: column; align-items: center; justify-content: center; margin-bottom: 2rem; text-align: center; }
     .logo-img { max-width: 180px; border-radius: 20px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5); margin-bottom: 0.5rem; }
     .main-title { font-family: 'Inter', sans-serif; font-weight: 900; font-size: 2.5rem; background: linear-gradient(to bottom, #F8FAFC, #94A3B8); -webkit-background-clip: text; -webkit-text-fill-color: transparent; text-shadow: 0 2px 10px rgba(0,0,0,0.3); margin-top: 0px; }
 
-    /* Fix File Uploader Text Cutting Off */
     [data-testid="stFileUploader"] { padding: 1rem; }
     [data-testid="stFileUploader"] div div { line-height: 1.2; }
     [data-testid="stFileUploader"] section { padding: 1rem; }
     .stFileUploader label { font-size: 0.9rem; }
 
-    /* Sidebar & Metrics */
     [data-testid="stSidebar"] { background-color: #0F172A; border-right: 1px solid #334155; }
     [data-testid="stMetricValue"] { font-size: 2rem; font-weight: 900; color: #10B981; }
     
-    /* Card Result Box */
     .slab-container { background-color: #1E293B; border-radius: 15px; padding: 1rem; margin-top: 1rem; border: 1px solid #334155; border-left: 5px solid #3B82F6; box-shadow: 0 4px 10px rgba(0,0,0,0.2); }
     .slab-header { font-size: 1.1rem; font-weight: 900; color: #F8FAFC; }
     .slab-detail { color: #94A3B8; font-size: 0.9rem; }
@@ -45,7 +41,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# 2. Connections (Sheets & Drive)
+# 2. Connections
 def get_creds():
     scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
     creds_dict = dict(st.secrets["gcp_service_account"])
@@ -57,8 +53,7 @@ def connect_to_sheets():
         client = gspread.authorize(creds)
         sheet = client.open("Card Inventory").sheet1
         return sheet, None
-    except Exception as e:
-        return None, str(e)
+    except Exception as e: return None, str(e)
 
 def upload_image_to_drive(image_file, filename):
     try:
@@ -79,7 +74,7 @@ def upload_image_to_drive(image_file, filename):
         st.error(f"Drive Upload Error: {e}")
         return None
 
-# 3. Helper Functions
+# 3. Helpers
 def get_price_range(value_str):
     if not isinstance(value_str, str): return 0.0, 0.0
     numbers = re.findall(r"[\d,\.]+", value_str)
@@ -112,11 +107,10 @@ def save_to_google_sheets(data_dict):
             ]
             sheet.append_row(row)
             return True
-        except Exception as e:
-            return False
+        except Exception as e: return False
     return False
 
-# 4. Initialize State
+# 4. State
 if 'inventory' not in st.session_state: st.session_state.inventory = []
 
 # 5. Sidebar
@@ -124,22 +118,11 @@ with st.sidebar:
     st.title("💎 Collection Stats")
     sheet_conn, conn_err = connect_to_sheets()
     
-    # Status Indicator
-    if sheet_conn: 
-        st.success("🟢 Cloud Connected")
-    else: 
-        st.error(f"🔴 Cloud Error: {conn_err}")
+    if sheet_conn: st.success("🟢 Cloud Connected")
+    else: st.error(f"🔴 Cloud Error: {conn_err}")
 
-    # Setup Guide (Expander)
     with st.expander("🔌 How to Connect Cloud"):
-        st.markdown("""
-        **New User Setup:**
-        1. Create a **Service Account** in Google Cloud.
-        2. Download the **JSON Key**.
-        3. Paste JSON into Streamlit **Secrets**.
-        4. Enable **Drive API** & **Sheets API**.
-        5. Share your Sheet & Folder with the **Service Account Email**.
-        """)
+        st.markdown("**1.** Create Service Account & JSON Key.\n**2.** Paste JSON in Secrets.\n**3.** Enable Drive & Sheets API.\n**4.** Share Sheet & Folder with Robot Email.")
 
     total_low, total_high = 0.0, 0.0
     for item in st.session_state.inventory:
@@ -151,7 +134,7 @@ with st.sidebar:
     st.caption(f"{len(st.session_state.inventory)} items scanned.")
     st.divider()
 
-# 6. SPLIT LAYOUT
+# 6. Main Layout
 col_action, col_data = st.columns([1, 1.2], gap="large")
 
 with col_action:
@@ -165,12 +148,15 @@ with col_action:
     st.markdown("### 📸 Scan Tools")
     tab_single, tab_batch = st.tabs(["💎 Single Item", "🚀 Batch Dig"])
 
-    # --- SINGLE ---
+    # --- SINGLE TAB ---
     with tab_single:
         col_f, col_b = st.columns(2)
         with col_f: s_front = st.file_uploader("Front (Req)", type=['jpg','png','jpeg'], key="sf")
         with col_b: s_back = st.file_uploader("Back (Opt)", type=['jpg','png','jpeg'], key="sb")
         
+        # NEW: Variant Input Box
+        variant_note = st.text_input("📝 Special Notes / Variant (Optional)", placeholder="e.g. 'Silver Prizm' or 'Refractor'", help="Help the AI identify specific parallels, refractors, or serial numbers.")
+
         if st.button("🔍 Analyze & Upload", type="primary", use_container_width=True):
             if not s_front: st.warning("Need Front Image")
             else:
@@ -178,7 +164,10 @@ with col_action:
                 status.write("Analyzing...")
                 try:
                     client = genai.Client(api_key=st.secrets["GOOGLE_API_KEY"])
-                    prompt = f"""Identify item. JSON: 'Player','Team','Year','Set','Card_Number','Variation','Condition_Notes','Estimated_Raw_Value' ($ Range)."""
+                    
+                    # Inject User Note into Prompt
+                    prompt = f"""Identify item. JSON: 'Player','Team','Year','Set','Card_Number','Variation','Condition_Notes','Estimated_Raw_Value' ($ Range).
+                    IMPORTANT USER NOTE: The user states this is: '{variant_note}'. Prioritize this for the 'Variation' field."""
                     
                     img_f = Image.open(s_front)
                     inputs = [prompt, img_f]
@@ -199,26 +188,22 @@ with col_action:
                     status.empty()
                 except Exception as e: st.error(f"Error: {e}")
 
-    # --- BATCH ---
+    # --- BATCH TAB ---
     with tab_batch:
         include_backs = st.toggle("Include Back Images?", value=True, help="OFF: Upload Fronts only (Faster).\nON: Upload Front + Back pairs (Accurate).")
+        
+        # Batch Context Hint (Good for 'All Refractors')
+        batch_hint = st.text_input("🔍 Batch Hint (Optional)", placeholder="e.g. 'All are 1996 Topps Chrome Refractors'", help="Apply a specific note to EVERY card in this batch.")
             
-        b_files = st.file_uploader(
-            "Upload Batch", 
-            type=['jpg','png','jpeg'], 
-            accept_multiple_files=True, 
-            key="bf",
-            help="Select multiple files. Maintain order: Front, Back, Front, Back..."
-        )
+        b_files = st.file_uploader("Upload Batch", type=['jpg','png','jpeg'], accept_multiple_files=True, key="bf")
         
         if b_files:
             file_count = len(b_files)
             if include_backs:
                 card_count = file_count // 2
-                if file_count % 2 != 0: st.error(f"⚠️ Odd file count ({file_count}). Missing a back?")
+                if file_count % 2 != 0: st.error(f"⚠️ Odd file count ({file_count}).")
                 else: st.success(f"✅ Ready: {card_count} pairs.")
-            else:
-                st.success(f"✅ Ready: {file_count} cards.")
+            else: st.success(f"✅ Ready: {file_count} cards.")
 
         if st.button("🚀 Run Batch", type="primary", use_container_width=True):
             if not b_files: st.warning("No files")
@@ -227,14 +212,14 @@ with col_action:
                 sorted_files = sorted(b_files, key=lambda x: x.name)
                 prog = st.progress(0)
                 client = genai.Client(api_key=st.secrets["GOOGLE_API_KEY"])
-                
                 step = 2 if include_backs else 1
-                total_cards = len(sorted_files) // step
                 
                 for i in range(0, len(sorted_files), step):
                     try:
                         img_f = Image.open(sorted_files[i])
-                        inputs = [f"""Identify item. JSON keys: 'Player','Team','Year','Set','Card_Number','Variation','Condition_Notes','Estimated_Raw_Value'.""", img_f]
+                        # Inject Batch Hint
+                        inputs = [f"""Identify item. JSON keys: 'Player','Team','Year','Set','Card_Number','Variation','Condition_Notes','Estimated_Raw_Value'. 
+                        Context/Hint: {batch_hint}""", img_f]
                         
                         img_b = None
                         if include_backs:
@@ -246,8 +231,7 @@ with col_action:
                         
                         safe_name = f"{new.get('Player', 'Unknown')}_{new.get('Year', '')}_{new.get('Set', '')}".replace(" ", "_")
                         new['Front_Image'] = upload_image_to_drive(img_f, f"{safe_name}_FRONT.jpg")
-                        if img_b:
-                            new['Back_Image'] = upload_image_to_drive(img_b, f"{safe_name}_BACK.jpg")
+                        if img_b: new['Back_Image'] = upload_image_to_drive(img_b, f"{safe_name}_BACK.jpg")
                         
                         save_to_google_sheets(new)
                         st.session_state.inventory.append(new)
