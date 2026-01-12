@@ -152,8 +152,8 @@ with col_action:
     # --- SINGLE ---
     with tab_single:
         col_f, col_b = st.columns(2)
-        with col_f: s_front = st.file_uploader("Front (Req)", type=['jpg','png','jpeg'], key="sf")
-        with col_b: s_back = st.file_uploader("Back (Opt)", type=['jpg','png','jpeg'], key="sb")
+        with col_f: s_front = st.file_uploader("Front (Req)", type=['jpg','png','jpeg'], key="sf", help="Upload the front image of the card.")
+        with col_b: s_back = st.file_uploader("Back (Opt)", type=['jpg','png','jpeg'], key="sb", help="Upload the back image of the card (optional, but recommended for high value items).")
         
         if st.button("🔍 Analyze & Upload", type="primary", use_container_width=True):
             if not s_front: st.warning("Need Front Image")
@@ -185,14 +185,20 @@ with col_action:
 
     # --- BATCH ---
     with tab_batch:
-        # OPTIMIZATION TOGGLES
-        col_mode, col_help = st.columns([1, 0.2])
-        with col_mode:
-            include_backs = st.toggle("📸 Include Back Images?", value=True)
-        with col_help:
-            st.help("OFF: Upload Fronts only (Faster). ON: Upload Front + Back pairs (Better accuracy).")
+        # CLEAN TOGGLE WITH TOOLTIP
+        include_backs = st.toggle(
+            "📸 Include Back Images?", 
+            value=True, 
+            help="OFF: Upload Fronts only (Faster, 1 file per card).\nON: Upload Front + Back pairs (Better accuracy, 2 files per card)."
+        )
             
-        b_files = st.file_uploader("Upload Batch", type=['jpg','png','jpeg'], accept_multiple_files=True, key="bf")
+        b_files = st.file_uploader(
+            "Upload Batch", 
+            type=['jpg','png','jpeg'], 
+            accept_multiple_files=True, 
+            key="bf",
+            help="Select multiple images at once. If 'Include Backs' is ON, ensure files are in order (Front, Back, Front, Back...)"
+        )
         
         # LOGIC VALIDATOR
         if b_files:
@@ -214,7 +220,6 @@ with col_action:
                 prog = st.progress(0)
                 client = genai.Client(api_key=st.secrets["GOOGLE_API_KEY"])
                 
-                # BATCH LOOP LOGIC
                 step = 2 if include_backs else 1
                 total_cards = len(sorted_files) // step
                 
@@ -229,11 +234,9 @@ with col_action:
                             img_b = Image.open(sorted_files[i+1])
                             inputs.append(img_b)
                         
-                        # AI Call
                         resp = client.models.generate_content(model="gemini-1.5-flash", contents=inputs, config=types.GenerateContentConfig(response_mime_type="application/json"))
                         new = json.loads(resp.text)
                         
-                        # Uploads
                         safe_name = f"{new.get('Player', 'Unknown')}_{new.get('Year', '')}_{new.get('Set', '')}".replace(" ", "_")
                         new['Front_Image'] = upload_image_to_drive(img_f, f"{safe_name}_FRONT.jpg")
                         if img_b:
@@ -251,7 +254,7 @@ with col_action:
 
 with col_data:
     st.markdown("### 📋 Live Inventory")
-    search_term = st.text_input("🔍 Search Session", placeholder="Type player name...", label_visibility="collapsed")
+    search_term = st.text_input("🔍 Search Session", placeholder="Type player name...", label_visibility="collapsed", help="Filter the list below by player name.")
     if len(st.session_state.inventory) > 0:
         df = pd.DataFrame(st.session_state.inventory)
         if search_term: df = df[df.astype(str).apply(lambda x: x.str.contains(search_term, case=False)).any(axis=1)]
