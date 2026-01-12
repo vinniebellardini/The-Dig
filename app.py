@@ -16,26 +16,28 @@ from googleapiclient.http import MediaIoBaseUpload
 # 1. Configure Page
 st.set_page_config(page_title="The Dig", page_icon="⛏️", layout="wide")
 
-# --- CUSTOM CSS ---
+# --- CUSTOM CSS (UI POLISH) ---
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;900&display=swap');
     html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
     
+    /* Logo & Title */
     .logo-container { display: flex; flex-direction: column; align-items: center; justify-content: center; margin-bottom: 2rem; text-align: center; }
     .logo-img { max-width: 180px; border-radius: 20px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5); margin-bottom: 0.5rem; }
     .main-title { font-family: 'Inter', sans-serif; font-weight: 900; font-size: 2.5rem; background: linear-gradient(to bottom, #F8FAFC, #94A3B8); -webkit-background-clip: text; -webkit-text-fill-color: transparent; text-shadow: 0 2px 10px rgba(0,0,0,0.3); margin-top: 0px; }
 
-    .stTabs [data-baseweb="tab-list"] { gap: 10px; }
-    .stTabs [data-baseweb="tab"] { background-color: #1E293B; border-radius: 10px; color: #94A3B8; padding: 10px 20px; border: 1px solid #334155; }
-    .stTabs [aria-selected="true"] { background-color: #3B82F6; color: white; border-color: #3B82F6; }
+    /* Fix File Uploader Text Cutting Off */
+    [data-testid="stFileUploader"] { padding: 1rem; }
+    [data-testid="stFileUploader"] div div { line-height: 1.2; }
+    [data-testid="stFileUploader"] section { padding: 1rem; }
+    .stFileUploader label { font-size: 0.9rem; }
 
-    [data-testid="stExpander"] { background-color: #1E293B; border-radius: 15px; border: 1px solid #334155; }
-    [data-testid="stFileUploader"] { background-color: #1E293B; border: 2px dashed #475569; border-radius: 15px; padding: 2rem; text-align: center; }
-    [data-testid="stFileUploader"] section > button { background-color: #3B82F6; color: white; border: none; border-radius: 8px; font-weight: 600; }
+    /* Sidebar & Metrics */
     [data-testid="stSidebar"] { background-color: #0F172A; border-right: 1px solid #334155; }
     [data-testid="stMetricValue"] { font-size: 2rem; font-weight: 900; color: #10B981; }
-
+    
+    /* Card Result Box */
     .slab-container { background-color: #1E293B; border-radius: 15px; padding: 1rem; margin-top: 1rem; border: 1px solid #334155; border-left: 5px solid #3B82F6; box-shadow: 0 4px 10px rgba(0,0,0,0.2); }
     .slab-header { font-size: 1.1rem; font-weight: 900; color: #F8FAFC; }
     .slab-detail { color: #94A3B8; font-size: 0.9rem; }
@@ -121,8 +123,23 @@ if 'inventory' not in st.session_state: st.session_state.inventory = []
 with st.sidebar:
     st.title("💎 Collection Stats")
     sheet_conn, conn_err = connect_to_sheets()
-    if sheet_conn: st.success("🟢 Cloud Connected")
-    else: st.error(f"🔴 Cloud Error: {conn_err}")
+    
+    # Status Indicator
+    if sheet_conn: 
+        st.success("🟢 Cloud Connected")
+    else: 
+        st.error(f"🔴 Cloud Error: {conn_err}")
+
+    # Setup Guide (Expander)
+    with st.expander("🔌 How to Connect Cloud"):
+        st.markdown("""
+        **New User Setup:**
+        1. Create a **Service Account** in Google Cloud.
+        2. Download the **JSON Key**.
+        3. Paste JSON into Streamlit **Secrets**.
+        4. Enable **Drive API** & **Sheets API**.
+        5. Share your Sheet & Folder with the **Service Account Email**.
+        """)
 
     total_low, total_high = 0.0, 0.0
     for item in st.session_state.inventory:
@@ -133,7 +150,6 @@ with st.sidebar:
     st.metric(label="Total Value (Est.)", value=f"${total_low:,.0f} - ${total_high:,.0f}")
     st.caption(f"{len(st.session_state.inventory)} items scanned.")
     st.divider()
-    st.info("ℹ️ Items & Photos saved to Cloud.")
 
 # 6. SPLIT LAYOUT
 col_action, col_data = st.columns([1, 1.2], gap="large")
@@ -152,8 +168,8 @@ with col_action:
     # --- SINGLE ---
     with tab_single:
         col_f, col_b = st.columns(2)
-        with col_f: s_front = st.file_uploader("Front (Req)", type=['jpg','png','jpeg'], key="sf", help="Upload the front image of the card.")
-        with col_b: s_back = st.file_uploader("Back (Opt)", type=['jpg','png','jpeg'], key="sb", help="Upload the back image of the card (optional, but recommended for high value items).")
+        with col_f: s_front = st.file_uploader("Front (Req)", type=['jpg','png','jpeg'], key="sf")
+        with col_b: s_back = st.file_uploader("Back (Opt)", type=['jpg','png','jpeg'], key="sb")
         
         if st.button("🔍 Analyze & Upload", type="primary", use_container_width=True):
             if not s_front: st.warning("Need Front Image")
@@ -185,36 +201,28 @@ with col_action:
 
     # --- BATCH ---
     with tab_batch:
-        # CLEAN TOGGLE WITH TOOLTIP
-        include_backs = st.toggle(
-            "📸 Include Back Images?", 
-            value=True, 
-            help="OFF: Upload Fronts only (Faster, 1 file per card).\nON: Upload Front + Back pairs (Better accuracy, 2 files per card)."
-        )
+        include_backs = st.toggle("Include Back Images?", value=True, help="OFF: Upload Fronts only (Faster).\nON: Upload Front + Back pairs (Accurate).")
             
         b_files = st.file_uploader(
             "Upload Batch", 
             type=['jpg','png','jpeg'], 
             accept_multiple_files=True, 
             key="bf",
-            help="Select multiple images at once. If 'Include Backs' is ON, ensure files are in order (Front, Back, Front, Back...)"
+            help="Select multiple files. Maintain order: Front, Back, Front, Back..."
         )
         
-        # LOGIC VALIDATOR
         if b_files:
             file_count = len(b_files)
             if include_backs:
                 card_count = file_count // 2
-                if file_count % 2 != 0:
-                    st.error(f"⚠️ Odd file count ({file_count}). You are missing a back image!")
-                else:
-                    st.success(f"✅ Ready to process {card_count} pairs.")
+                if file_count % 2 != 0: st.error(f"⚠️ Odd file count ({file_count}). Missing a back?")
+                else: st.success(f"✅ Ready: {card_count} pairs.")
             else:
-                st.success(f"✅ Ready to process {file_count} single cards.")
+                st.success(f"✅ Ready: {file_count} cards.")
 
         if st.button("🚀 Run Batch", type="primary", use_container_width=True):
             if not b_files: st.warning("No files")
-            elif include_backs and len(b_files) % 2 != 0: st.error("Fix file count first.")
+            elif include_backs and len(b_files) % 2 != 0: st.error("Fix file count.")
             else:
                 sorted_files = sorted(b_files, key=lambda x: x.name)
                 prog = st.progress(0)
@@ -224,7 +232,6 @@ with col_action:
                 total_cards = len(sorted_files) // step
                 
                 for i in range(0, len(sorted_files), step):
-                    current_card = (i // step) + 1
                     try:
                         img_f = Image.open(sorted_files[i])
                         inputs = [f"""Identify item. JSON keys: 'Player','Team','Year','Set','Card_Number','Variation','Condition_Notes','Estimated_Raw_Value'.""", img_f]
@@ -245,8 +252,8 @@ with col_action:
                         save_to_google_sheets(new)
                         st.session_state.inventory.append(new)
                         
-                    except Exception as e: st.error(f"Error on card {current_card}: {e}")
-                    prog.progress(current_card / total_cards)
+                    except Exception as e: st.error(f"Error: {e}")
+                    prog.progress((i + step) / len(sorted_files))
                 
                 st.success("Batch Complete!")
                 time.sleep(1)
@@ -254,7 +261,7 @@ with col_action:
 
 with col_data:
     st.markdown("### 📋 Live Inventory")
-    search_term = st.text_input("🔍 Search Session", placeholder="Type player name...", label_visibility="collapsed", help="Filter the list below by player name.")
+    search_term = st.text_input("🔍 Search Session", placeholder="Filter by player...", label_visibility="collapsed")
     if len(st.session_state.inventory) > 0:
         df = pd.DataFrame(st.session_state.inventory)
         if search_term: df = df[df.astype(str).apply(lambda x: x.str.contains(search_term, case=False)).any(axis=1)]
